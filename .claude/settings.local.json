@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew compileKotlinDesktop:*)",
+      "Bash(./gradlew desktopRun:*)",
+      "Bash(./gradlew :composeApp:compileKotlinDesktop:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "mcp__ide__getDiagnostics"
+    ]
+  }
+}

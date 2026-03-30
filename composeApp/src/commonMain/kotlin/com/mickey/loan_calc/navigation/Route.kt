@@ -7,7 +7,7 @@ sealed interface Route: NavKey {
 
     sealed interface TopLevel: Route {
         @Serializable
-        data object CalculateScreen: TopLevel
+        data object CalculatorScreen: TopLevel
 
         @Serializable
         data object SaveListScreen: TopLevel
@@ -15,8 +15,5 @@ sealed interface Route: NavKey {
         @Serializable
         data object SettingsScreen: TopLevel
     }
-
-    @Serializable
-    data object CalculationResultScreen: Route
 
 }
