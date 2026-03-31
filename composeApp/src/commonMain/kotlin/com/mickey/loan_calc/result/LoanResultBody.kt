@@ -1,6 +1,7 @@
 package com.mickey.loan_calc.result
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,8 +17,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.mickey.loan_calc.calculator.MonthlyPayment
 import kotlinx.datetime.LocalDate
 
@@ -28,6 +31,26 @@ private val ChartGrayColor = Color(0xFFB0BEC5)
 @Composable
 fun LoanResultBody(state: LoanResultState) {
     var selectedTab by remember { mutableStateOf(0) }
+
+    val availableYears = remember(state.paymentSchedule) {
+        state.paymentSchedule.map { it.date.year }.distinct().sorted()
+    }
+    var selectedYear by remember(availableYears) {
+        mutableStateOf(availableYears.firstOrNull() ?: 0)
+    }
+    var showYearPickerDialog by remember { mutableStateOf(false) }
+
+    if (showYearPickerDialog) {
+        YearPickerDialog(
+            years = availableYears,
+            selectedYear = selectedYear,
+            onYearSelected = { year ->
+                selectedYear = year
+                showYearPickerDialog = false
+            },
+            onDismiss = { showYearPickerDialog = false }
+        )
+    }
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
         item {
@@ -115,10 +138,17 @@ fun LoanResultBody(state: LoanResultState) {
         if (selectedTab == 0) {
             if (state.paymentSchedule.isNotEmpty()) {
                 item {
+                    YearSelectorRow(
+                        years = availableYears,
+                        selectedYear = selectedYear,
+                        onYearSelected = { selectedYear = it },
+                        onEllipsisClick = { showYearPickerDialog = true }
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                     PaymentScheduleHeader()
                     HorizontalDivider(color = Color.LightGray, thickness = 0.5.dp)
                 }
-                items(state.paymentSchedule) { payment ->
+                items(state.paymentSchedule.filter { it.date.year == selectedYear }) { payment ->
                     PaymentScheduleItem(payment)
                 }
                 item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -264,6 +294,138 @@ private fun LegendItem(color: Color, label: String) {
             color = color
         ) {}
         Text(text = label, fontSize = 14.sp, color = LabelColor)
+    }
+}
+
+@Composable
+private fun YearSelectorRow(
+    years: List<Int>,
+    selectedYear: Int,
+    onYearSelected: (Int) -> Unit,
+    onEllipsisClick: () -> Unit
+) {
+    val selectedIndex = years.indexOf(selectedYear)
+    val prevYear = if (selectedIndex > 0) years[selectedIndex - 1] else null
+    val nextYear = if (selectedIndex < years.lastIndex) years[selectedIndex + 1] else null
+    val hasMoreLeft = selectedIndex > 1
+    val hasMoreRight = selectedIndex < years.lastIndex - 1
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (hasMoreLeft) {
+            Text(
+                text = "…",
+                fontSize = 18.sp,
+                color = LabelColor,
+                modifier = Modifier
+                    .clickable { onEllipsisClick() }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(42.dp))
+        }
+
+        if (prevYear != null) {
+            Text(
+                text = prevYear.toString(),
+                fontSize = 15.sp,
+                color = LabelColor,
+                modifier = Modifier
+                    .clickable { onYearSelected(prevYear) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(66.dp))
+        }
+
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = GreenColor,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        ) {
+            Text(
+                text = selectedYear.toString(),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
+
+        if (nextYear != null) {
+            Text(
+                text = nextYear.toString(),
+                fontSize = 15.sp,
+                color = LabelColor,
+                modifier = Modifier
+                    .clickable { onYearSelected(nextYear) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(66.dp))
+        }
+
+        if (hasMoreRight) {
+            Text(
+                text = "…",
+                fontSize = 18.sp,
+                color = LabelColor,
+                modifier = Modifier
+                    .clickable { onEllipsisClick() }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(42.dp))
+        }
+    }
+}
+
+@Composable
+private fun YearPickerDialog(
+    years: List<Int>,
+    selectedYear: Int,
+    onYearSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text(
+                    text = "Выберите год",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.Black,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                years.forEach { year ->
+                    val isSelected = year == selectedYear
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) GreenColor else Color.Transparent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onYearSelected(year) }
+                    ) {
+                        Text(
+                            text = year.toString(),
+                            fontSize = 16.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color.White else Color.Black,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
