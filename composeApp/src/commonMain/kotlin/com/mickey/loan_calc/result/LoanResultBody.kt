@@ -22,21 +22,36 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.mickey.loan_calc.calculator.MonthlyPayment
+import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 private val GreenColor = Color(0xFF4CAF50)
 private val LabelColor = Color(0xFF9E9E9E)
 private val ChartGrayColor = Color(0xFFB0BEC5)
 
+private enum class PaymentStatus { PAID, CURRENT, UPCOMING }
+
 @Composable
 fun LoanResultBody(state: LoanResultState) {
     var selectedTab by remember { mutableStateOf(0) }
+
+    val today = remember {
+        Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
+    }
+    val currentPaymentIndex = remember(state.paymentSchedule, today) {
+        state.paymentSchedule.indexOfFirst { it.date >= today }
+    }
 
     val availableYears = remember(state.paymentSchedule) {
         state.paymentSchedule.map { it.date.year }.distinct().sorted()
     }
     var selectedYear by remember(availableYears) {
-        mutableStateOf(availableYears.firstOrNull() ?: 0)
+        val currentYear = today.year
+        mutableStateOf(
+            if (currentYear in availableYears) currentYear else availableYears.firstOrNull() ?: 0
+        )
     }
     var showYearPickerDialog by remember { mutableStateOf(false) }
 
@@ -96,19 +111,19 @@ fun LoanResultBody(state: LoanResultState) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(32.dp),
+                shape = RoundedCornerShape(48.dp),
                 color = Color.White,
                 tonalElevation = 0.dp
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(6.dp),
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
                         onClick = { selectedTab = 0 },
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).height(36.dp),
                         shape = RoundedCornerShape(24.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (selectedTab == 0) GreenColor else Color.Transparent,
@@ -116,11 +131,11 @@ fun LoanResultBody(state: LoanResultState) {
                         ),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
-                        Text(text = "График", fontSize = 16.sp)
+                        Text(text = "График", fontSize = 14.sp)
                     }
                     Button(
                         onClick = { selectedTab = 1 },
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).height(36.dp),
                         shape = RoundedCornerShape(24.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (selectedTab == 1) GreenColor else Color.Transparent,
@@ -128,7 +143,7 @@ fun LoanResultBody(state: LoanResultState) {
                         ),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
-                        Text(text = "Диаграмма", fontSize = 16.sp)
+                        Text(text = "Диаграмма", fontSize = 14.sp)
                     }
                 }
             }
@@ -149,7 +164,14 @@ fun LoanResultBody(state: LoanResultState) {
                     HorizontalDivider(color = Color.LightGray, thickness = 0.5.dp)
                 }
                 items(state.paymentSchedule.filter { it.date.year == selectedYear }) { payment ->
-                    PaymentScheduleItem(payment)
+                    val globalIndex = state.paymentSchedule.indexOf(payment)
+                    val status = when {
+                        currentPaymentIndex == -1 -> PaymentStatus.PAID
+                        globalIndex < currentPaymentIndex -> PaymentStatus.PAID
+                        globalIndex == currentPaymentIndex -> PaymentStatus.CURRENT
+                        else -> PaymentStatus.UPCOMING
+                    }
+                    PaymentScheduleItem(payment, status)
                 }
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
@@ -443,42 +465,83 @@ private fun PaymentScheduleHeader() {
 }
 
 @Composable
-private fun PaymentScheduleItem(payment: MonthlyPayment) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+private fun PaymentScheduleItem(payment: MonthlyPayment, status: PaymentStatus) {
+    val isPaid = status == PaymentStatus.PAID
+    val isCurrent = status == PaymentStatus.CURRENT
+
+    val textColor = if (isPaid) LabelColor else Color.Black
+    val amountColor = if (isPaid) LabelColor else GreenColor
+    val detailColor = if (isPaid) Color(0xFFBDBDBD) else LabelColor
+    val bgColor = if (isCurrent) Color(0xFFF1F8F1) else Color.Transparent
+
+    Surface(color = bgColor) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "#${payment.month}  ${formatLocalDate(payment.date)}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = textColor
+                    )
+                    when (status) {
+                        PaymentStatus.PAID -> Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFF0F0F0)
+                        ) {
+                            Text(
+                                text = "✓",
+                                fontSize = 11.sp,
+                                color = LabelColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        PaymentStatus.CURRENT -> Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = GreenColor
+                        ) {
+                            Text(
+                                text = "Текущий",
+                                fontSize = 11.sp,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        PaymentStatus.UPCOMING -> {}
+                    }
+                }
+                Text(
+                    text = formatMoney(payment.payment),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = amountColor
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(text = "Долг: ${formatMoney(payment.principal)}", fontSize = 12.sp, color = detailColor)
+                Text(text = "Проценты: ${formatMoney(payment.interest)}", fontSize = 12.sp, color = detailColor)
+            }
             Text(
-                text = "#${payment.month}  ${formatLocalDate(payment.date)}",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.Black
-            )
-            Text(
-                text = formatMoney(payment.payment),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = GreenColor
+                text = "Остаток: ${formatMoney(payment.remainingBalance)}",
+                fontSize = 12.sp,
+                color = detailColor
             )
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(text = "Долг: ${formatMoney(payment.principal)}", fontSize = 12.sp, color = LabelColor)
-            Text(text = "Проценты: ${formatMoney(payment.interest)}", fontSize = 12.sp, color = LabelColor)
-        }
-        Text(
-            text = "Остаток: ${formatMoney(payment.remainingBalance)}",
-            fontSize = 12.sp,
-            color = LabelColor
-        )
     }
     HorizontalDivider(color = Color.LightGray, thickness = 0.5.dp)
 }

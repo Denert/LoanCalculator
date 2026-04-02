@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.mickey.loan_calc.saved.SavedLoan
+import com.mickey.loan_calc.saved.SavedLoansRepository
+import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
 
 class LoanCalculatorViewModel : ViewModel() {
@@ -63,7 +66,37 @@ class LoanCalculatorViewModel : ViewModel() {
         _state.update { it.copy(additionalConditions = enabled) }
     }
 
-    fun onSaveClick() {
-        // TODO: implement save logic
+    fun onStartDateChange(date: DateState) {
+        _state.update { it.copy(startDate = date) }
+    }
+
+    fun saveWithName(name: String) {
+        val s = _state.value
+        val id = Clock.System.now().toEpochMilliseconds().toString()
+        SavedLoansRepository.save(
+            SavedLoan(
+                id = id,
+                name = name.trim(),
+                loanAmount = s.loanAmount,
+                interestRate = s.interestRate,
+                termValue = s.termValue,
+                termUnit = s.termUnit,
+                startDate = s.startDate,
+                paymentType = s.paymentType
+            )
+        )
+    }
+
+    fun loadFromSaved(loan: SavedLoan) {
+        _state.update {
+            LoanCalculatorState(
+                loanAmount = loan.loanAmount,
+                interestRate = loan.interestRate,
+                termValue = loan.termValue,
+                termUnit = loan.termUnit,
+                startDate = loan.startDate,
+                paymentType = loan.paymentType
+            )
+        }
     }
 }
