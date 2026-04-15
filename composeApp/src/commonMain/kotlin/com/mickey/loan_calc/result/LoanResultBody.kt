@@ -1,6 +1,7 @@
 package com.mickey.loan_calc.result
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,18 +17,55 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.mickey.loan_calc.calculator.MonthlyPayment
+import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 private val GreenColor = Color(0xFF4CAF50)
 private val LabelColor = Color(0xFF9E9E9E)
 private val ChartGrayColor = Color(0xFFB0BEC5)
 
+private enum class PaymentStatus { PAID, CURRENT, UPCOMING }
+
 @Composable
 fun LoanResultBody(state: LoanResultState) {
     var selectedTab by remember { mutableStateOf(0) }
+
+    val today = remember {
+        Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
+    }
+    val currentPaymentIndex = remember(state.paymentSchedule, today) {
+        state.paymentSchedule.indexOfFirst { it.date >= today }
+    }
+
+    val availableYears = remember(state.paymentSchedule) {
+        state.paymentSchedule.map { it.date.year }.distinct().sorted()
+    }
+    var selectedYear by remember(availableYears) {
+        val currentYear = today.year
+        mutableStateOf(
+            if (currentYear in availableYears) currentYear else availableYears.firstOrNull() ?: 0
+        )
+    }
+    var showYearPickerDialog by remember { mutableStateOf(false) }
+
+    if (showYearPickerDialog) {
+        YearPickerDialog(
+            years = availableYears,
+            selectedYear = selectedYear,
+            onYearSelected = { year ->
+                selectedYear = year
+                showYearPickerDialog = false
+            },
+            onDismiss = { showYearPickerDialog = false }
+        )
+    }
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
         item {
@@ -73,19 +111,19 @@ fun LoanResultBody(state: LoanResultState) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(32.dp),
+                shape = RoundedCornerShape(48.dp),
                 color = Color.White,
                 tonalElevation = 0.dp
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(6.dp),
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
                         onClick = { selectedTab = 0 },
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).height(36.dp),
                         shape = RoundedCornerShape(24.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (selectedTab == 0) GreenColor else Color.Transparent,
@@ -93,11 +131,11 @@ fun LoanResultBody(state: LoanResultState) {
                         ),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
-                        Text(text = "График", fontSize = 16.sp)
+                        Text(text = "График", fontSize = 14.sp)
                     }
                     Button(
                         onClick = { selectedTab = 1 },
-                        modifier = Modifier.weight(1f).height(48.dp),
+                        modifier = Modifier.weight(1f).height(36.dp),
                         shape = RoundedCornerShape(24.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (selectedTab == 1) GreenColor else Color.Transparent,
@@ -105,7 +143,7 @@ fun LoanResultBody(state: LoanResultState) {
                         ),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
-                        Text(text = "Диаграмма", fontSize = 16.sp)
+                        Text(text = "Диаграмма", fontSize = 14.sp)
                     }
                 }
             }
@@ -115,11 +153,25 @@ fun LoanResultBody(state: LoanResultState) {
         if (selectedTab == 0) {
             if (state.paymentSchedule.isNotEmpty()) {
                 item {
+                    YearSelectorRow(
+                        years = availableYears,
+                        selectedYear = selectedYear,
+                        onYearSelected = { selectedYear = it },
+                        onEllipsisClick = { showYearPickerDialog = true }
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                     PaymentScheduleHeader()
                     HorizontalDivider(color = Color.LightGray, thickness = 0.5.dp)
                 }
-                items(state.paymentSchedule) { payment ->
-                    PaymentScheduleItem(payment)
+                items(state.paymentSchedule.filter { it.date.year == selectedYear }) { payment ->
+                    val globalIndex = state.paymentSchedule.indexOf(payment)
+                    val status = when {
+                        currentPaymentIndex == -1 -> PaymentStatus.PAID
+                        globalIndex < currentPaymentIndex -> PaymentStatus.PAID
+                        globalIndex == currentPaymentIndex -> PaymentStatus.CURRENT
+                        else -> PaymentStatus.UPCOMING
+                    }
+                    PaymentScheduleItem(payment, status)
                 }
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
@@ -268,6 +320,138 @@ private fun LegendItem(color: Color, label: String) {
 }
 
 @Composable
+private fun YearSelectorRow(
+    years: List<Int>,
+    selectedYear: Int,
+    onYearSelected: (Int) -> Unit,
+    onEllipsisClick: () -> Unit
+) {
+    val selectedIndex = years.indexOf(selectedYear)
+    val prevYear = if (selectedIndex > 0) years[selectedIndex - 1] else null
+    val nextYear = if (selectedIndex < years.lastIndex) years[selectedIndex + 1] else null
+    val hasMoreLeft = selectedIndex > 1
+    val hasMoreRight = selectedIndex < years.lastIndex - 1
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (hasMoreLeft) {
+            Text(
+                text = "…",
+                fontSize = 18.sp,
+                color = LabelColor,
+                modifier = Modifier
+                    .clickable { onEllipsisClick() }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(42.dp))
+        }
+
+        if (prevYear != null) {
+            Text(
+                text = prevYear.toString(),
+                fontSize = 15.sp,
+                color = LabelColor,
+                modifier = Modifier
+                    .clickable { onYearSelected(prevYear) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(66.dp))
+        }
+
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = GreenColor,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        ) {
+            Text(
+                text = selectedYear.toString(),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
+
+        if (nextYear != null) {
+            Text(
+                text = nextYear.toString(),
+                fontSize = 15.sp,
+                color = LabelColor,
+                modifier = Modifier
+                    .clickable { onYearSelected(nextYear) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(66.dp))
+        }
+
+        if (hasMoreRight) {
+            Text(
+                text = "…",
+                fontSize = 18.sp,
+                color = LabelColor,
+                modifier = Modifier
+                    .clickable { onEllipsisClick() }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(42.dp))
+        }
+    }
+}
+
+@Composable
+private fun YearPickerDialog(
+    years: List<Int>,
+    selectedYear: Int,
+    onYearSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text(
+                    text = "Выберите год",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.Black,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                years.forEach { year ->
+                    val isSelected = year == selectedYear
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) GreenColor else Color.Transparent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onYearSelected(year) }
+                    ) {
+                        Text(
+                            text = year.toString(),
+                            fontSize = 16.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color.White else Color.Black,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PaymentScheduleHeader() {
     Row(
         modifier = Modifier
@@ -281,42 +465,83 @@ private fun PaymentScheduleHeader() {
 }
 
 @Composable
-private fun PaymentScheduleItem(payment: MonthlyPayment) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+private fun PaymentScheduleItem(payment: MonthlyPayment, status: PaymentStatus) {
+    val isPaid = status == PaymentStatus.PAID
+    val isCurrent = status == PaymentStatus.CURRENT
+
+    val textColor = if (isPaid) LabelColor else Color.Black
+    val amountColor = if (isPaid) LabelColor else GreenColor
+    val detailColor = if (isPaid) Color(0xFFBDBDBD) else LabelColor
+    val bgColor = if (isCurrent) Color(0xFFF1F8F1) else Color.Transparent
+
+    Surface(color = bgColor) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "#${payment.month}  ${formatLocalDate(payment.date)}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = textColor
+                    )
+                    when (status) {
+                        PaymentStatus.PAID -> Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFF0F0F0)
+                        ) {
+                            Text(
+                                text = "✓",
+                                fontSize = 11.sp,
+                                color = LabelColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        PaymentStatus.CURRENT -> Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = GreenColor
+                        ) {
+                            Text(
+                                text = "Текущий",
+                                fontSize = 11.sp,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        PaymentStatus.UPCOMING -> {}
+                    }
+                }
+                Text(
+                    text = formatMoney(payment.payment),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = amountColor
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(text = "Долг: ${formatMoney(payment.principal)}", fontSize = 12.sp, color = detailColor)
+                Text(text = "Проценты: ${formatMoney(payment.interest)}", fontSize = 12.sp, color = detailColor)
+            }
             Text(
-                text = "#${payment.month}  ${formatLocalDate(payment.date)}",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.Black
-            )
-            Text(
-                text = formatMoney(payment.payment),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = GreenColor
+                text = "Остаток: ${formatMoney(payment.remainingBalance)}",
+                fontSize = 12.sp,
+                color = detailColor
             )
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(text = "Долг: ${formatMoney(payment.principal)}", fontSize = 12.sp, color = LabelColor)
-            Text(text = "Проценты: ${formatMoney(payment.interest)}", fontSize = 12.sp, color = LabelColor)
-        }
-        Text(
-            text = "Остаток: ${formatMoney(payment.remainingBalance)}",
-            fontSize = 12.sp,
-            color = LabelColor
-        )
     }
     HorizontalDivider(color = Color.LightGray, thickness = 0.5.dp)
 }

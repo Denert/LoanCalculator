@@ -22,9 +22,9 @@ data class DateState(
 )
 
 data class LoanCalculatorState(
-    val loanAmount: String = "",
-    val interestRate: String = "",
-    val termValue: String = "",
+    val loanAmount: String = "1000000",
+    val interestRate: String = "10",
+    val termValue: String = "36",
     val termUnit: TermUnit = TermUnit.MONTHS,
     val startDate: DateState? = Clock.System.now()
         .toLocalDateTime(TimeZone.currentSystemDefault())

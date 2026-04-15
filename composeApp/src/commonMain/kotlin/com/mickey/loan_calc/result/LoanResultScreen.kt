@@ -13,11 +13,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -43,7 +47,17 @@ fun LoanResultScreen(
     val result by viewModel.calculationResult.collectAsState()
     val resultState = remember(inputState, result) { buildResultState(inputState, result) }
 
+    val today = remember { Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date }
+    val isLoanExpired = remember(result, today) {
+        result?.monthlyPayments?.lastOrNull()?.date?.let { it < today } ?: false
+    }
+
     var showCalculatorSheet by remember { mutableStateOf(true) }
+
+    LaunchedEffect(isLoanExpired) {
+        if (isLoanExpired) showCalculatorSheet = true
+    }
+
     val backButtonAlpha by animateFloatAsState(
         targetValue = if (showCalculatorSheet) 0f else 1f,
         label = "backButtonAlpha"
@@ -93,7 +107,7 @@ fun LoanResultScreen(
                 fontSize = 40.sp,
                 fontWeight = FontWeight.ExtraBold
             )
-            if (showCalculatorSheet && resultState.monthlyPayment != "0 ₽") {
+            if (showCalculatorSheet && resultState.monthlyPayment != "0 ₽" && !isLoanExpired) {
                 IconButton(
                     onClick = { showCalculatorSheet = false },
                     modifier = Modifier.align(Alignment.CenterEnd)
@@ -113,7 +127,8 @@ fun LoanResultScreen(
             LoanResultBody(state = resultState)
             AnimatedCalculatorSheet(
                 visible = showCalculatorSheet,
-                canDismiss = result != null,
+                canDismiss = result != null && !isLoanExpired,
+                isLoanExpired = isLoanExpired,
                 viewModel = viewModel,
                 onDismiss = { showCalculatorSheet = false }
             )
@@ -125,6 +140,7 @@ fun LoanResultScreen(
 private fun AnimatedCalculatorSheet(
     visible: Boolean,
     canDismiss: Boolean,
+    isLoanExpired: Boolean,
     viewModel: LoanCalculatorViewModel,
     onDismiss: () -> Unit
 ) {
@@ -136,7 +152,12 @@ private fun AnimatedCalculatorSheet(
             targetOffsetY = { it }
         )
     ) {
-        LoanCalculatorScreen(viewModel = viewModel, canDismiss = canDismiss, onDismiss = onDismiss)
+        LoanCalculatorScreen(
+            viewModel = viewModel,
+            canDismiss = canDismiss,
+            isLoanExpired = isLoanExpired,
+            onDismiss = onDismiss
+        )
     }
 }
 

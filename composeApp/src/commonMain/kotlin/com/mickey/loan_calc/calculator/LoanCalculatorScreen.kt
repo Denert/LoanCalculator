@@ -35,9 +35,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlin.math.roundToInt
 
 private val GreenColor = Color(0xFF4CAF50)
@@ -48,12 +53,24 @@ private val LabelColor = Color(0xFF9E9E9E)
 fun LoanCalculatorScreen(
     onDismiss: () -> Unit = {},
     canDismiss: Boolean = true,
+    isLoanExpired: Boolean = false,
     viewModel: LoanCalculatorViewModel = viewModel { LoanCalculatorViewModel() }
 ) {
     val state by viewModel.state.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val offsetY = remember { Animatable(2000f) }
     var containerHeight by remember { mutableStateOf(0) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+
+    if (showSaveDialog) {
+        SaveNameDialog(
+            onConfirm = { name ->
+                viewModel.saveWithName(name)
+                showSaveDialog = false
+            },
+            onDismiss = { showSaveDialog = false }
+        )
+    }
 
     LaunchedEffect(Unit) {
         offsetY.animateTo(0f, tween(durationMillis = 350, easing = FastOutSlowInEasing))
@@ -142,9 +159,11 @@ fun LoanCalculatorScreen(
                 onInterestRateChange = viewModel::onInterestRateChange,
                 onTermValueChange = viewModel::onTermValueChange,
                 onTermUnitChange = viewModel::onTermUnitChange,
+                onStartDateChange = viewModel::onStartDateChange,
                 onPaymentTypeChange = viewModel::onPaymentTypeChange,
                 onAdditionalConditionsChange = viewModel::onAdditionalConditionsChange,
-                onSaveClick = viewModel::onSaveClick,
+                onSaveClick = { showSaveDialog = true },
+                isLoanExpired = isLoanExpired,
                 topPadding = 24.dp
             )
         }
@@ -158,9 +177,11 @@ private fun FormContent(
     onInterestRateChange: (String) -> Unit,
     onTermValueChange: (String) -> Unit,
     onTermUnitChange: (TermUnit) -> Unit,
+    onStartDateChange: (DateState) -> Unit,
     onPaymentTypeChange: (PaymentType) -> Unit,
     onAdditionalConditionsChange: (Boolean) -> Unit,
     onSaveClick: () -> Unit,
+    isLoanExpired: Boolean = false,
     topPadding: androidx.compose.ui.unit.Dp = 24.dp
 ) {
     Column(
@@ -206,7 +227,21 @@ private fun FormContent(
             }
         }
 
-        DateField(label = "Дата кредита", date = state.startDate)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            DateField(
+                label = "Дата кредита",
+                date = state.startDate,
+                onDateChange = onStartDateChange,
+                isError = isLoanExpired
+            )
+            if (isLoanExpired) {
+                Text(
+                    text = "Срок кредита уже истёк. Измените дату или срок.",
+                    fontSize = 12.sp,
+                    color = Color(0xFFE53935)
+                )
+            }
+        }
 
         PaymentTypeSelector(selected = state.paymentType, onSelect = onPaymentTypeChange)
 
@@ -345,34 +380,141 @@ private fun TermUnitDropdown(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DateField(label: String, date: DateState?) {
+private fun DateField(label: String, date: DateState?, onDateChange: (DateState) -> Unit, isError: Boolean = false) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    val currentYear = remember {
+        Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).year
+    }
+    val initialMillis = remember(date) {
+        date?.let {
+            kotlinx.datetime.LocalDate(it.year, it.monthNumber, it.dayOfMonth)
+                .toEpochDays().toLong() * 86_400_000L
+        }
+    }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = initialMillis,
+        yearRange = (currentYear - 30)..(currentYear + 30)
+    )
+
+    if (showPicker) {
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val ldt = Instant.fromEpochMilliseconds(millis)
+                            .toLocalDateTime(TimeZone.UTC)
+                        onDateChange(DateState(ldt.year, ldt.monthNumber, ldt.dayOfMonth))
+                    }
+                    showPicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) { Text("Отмена") }
+            }
+        ) {
+            DatePicker(
+                state = datePickerState,
+                colors = DatePickerDefaults.colors(
+                    selectedDayContainerColor = GreenColor,
+                    todayDateBorderColor = GreenColor,
+                    selectedYearContainerColor = GreenColor
+                )
+            )
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(text = label, fontSize = 14.sp, color = LabelColor)
-        OutlinedTextField(
-            value = date?.let {
-                "${it.dayOfMonth.toString().padStart(2, '0')}.${it.monthNumber.toString().padStart(2, '0')}.${it.year}"
-            } ?: "",
-            onValueChange = {},
-            modifier = Modifier.fillMaxWidth(),
-            readOnly = true,
-            placeholder = { Text(text = "Выберите дату", color = PlaceholderColor) },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.CalendarMonth,
-                    contentDescription = null,
-                    tint = PlaceholderColor
+        Box {
+            OutlinedTextField(
+                value = date?.let {
+                    "${it.dayOfMonth.toString().padStart(2, '0')}.${it.monthNumber.toString().padStart(2, '0')}.${it.year}"
+                } ?: "",
+                onValueChange = {},
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = true,
+                placeholder = { Text(text = "Выберите дату", color = PlaceholderColor) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = PlaceholderColor
+                    )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = if (isError) Color(0xFFE53935) else Color.LightGray,
+                    focusedBorderColor = if (isError) Color(0xFFE53935) else GreenColor,
+                    unfocusedContainerColor = Color.White,
+                    focusedContainerColor = Color.White
                 )
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                unfocusedBorderColor = Color.LightGray,
-                focusedBorderColor = GreenColor,
-                unfocusedContainerColor = Color.White,
-                focusedContainerColor = Color.White
             )
-        )
+            Box(modifier = Modifier.matchParentSize().clickable { showPicker = true })
+        }
+    }
+}
+
+@Composable
+private fun SaveNameDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Название кредита",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.Black
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Введите название", color = PlaceholderColor) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = Color.LightGray,
+                        focusedBorderColor = GreenColor,
+                        unfocusedContainerColor = Color.White,
+                        focusedContainerColor = Color.White
+                    )
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Отмена")
+                    }
+                    Button(
+                        onClick = { if (name.isNotBlank()) onConfirm(name) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = GreenColor),
+                        enabled = name.isNotBlank()
+                    ) {
+                        Text("Сохранить")
+                    }
+                }
+            }
+        }
     }
 }
 
